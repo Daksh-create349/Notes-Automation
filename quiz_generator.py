@@ -17,17 +17,41 @@ At the end, include an ## Answer Key section listing Q1: A, Q2: B, etc.
 Use only Markdown. No extra commentary."""
 
 
-def generate_quiz(notes: str) -> str | None:
+import re
+import time
+
+
+def _clean_non_latin(text: str | None) -> str | None:
+    if not text:
+        return text
+    cleaned = re.sub(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0900-\u097F]+", "", text)
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    return cleaned.strip()
+
+
+def generate_quiz(notes: str, max_retries: int = 3) -> str | None:
     try:
         client = Groq(api_key=os.environ["GROQ_API_KEY"])
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Notes:\n\n{notes}"},
-            ],
-        )
-        return response.choices[0].message.content
+        for attempt in range(max_retries):
+            try:
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": f"Notes:\n\n{notes}"},
+                    ],
+                    temperature=0.3,
+                    max_tokens=2048,
+                )
+                return _clean_non_latin(response.choices[0].message.content)
+            except Exception as e:
+                err = str(e)
+                if attempt < max_retries - 1:
+                    wait = 20 * (attempt + 1)
+                    print(f"  Quiz generation retry {attempt + 1}/{max_retries} in {wait}s due to: {err[:80]}...")
+                    time.sleep(wait)
+                else:
+                    raise
     except Exception as e:
         print(f"Quiz generation error: {e}")
         return None

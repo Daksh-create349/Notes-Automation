@@ -69,18 +69,30 @@ def _split_audio(file_path: str, tmp_dir: str) -> list[str]:
     return chunks
 
 
-def _transcribe_single(client: Groq, file_path: str) -> str | None:
-    """Send a single (already-small) audio file to Groq and return the text."""
-    try:
-        with open(file_path, "rb") as f:
-            result = client.audio.transcriptions.create(
-                file=(Path(file_path).name, f),
-                model="whisper-large-v3",
-            )
-        return result.text
-    except Exception as e:
-        print(f"  Chunk transcription error: {e}")
-        return None
+import time
+
+
+def _transcribe_single(client: Groq, file_path: str, max_retries: int = 4) -> str | None:
+    """Translate and transcribe audio directly to English via Groq Whisper."""
+    for attempt in range(max_retries):
+        try:
+            with open(file_path, "rb") as f:
+                # Use translations.create to translate foreign speech (Hindi/Urdu/Hinglish) directly to English
+                result = client.audio.translations.create(
+                    file=(Path(file_path).name, f),
+                    model="whisper-large-v3",
+                )
+            return result.text
+        except Exception as e:
+            err = str(e)
+            if attempt < max_retries - 1:
+                wait = 10 * (2 ** attempt)  # 10s, 20s, 40s
+                print(f"  Transcription retry {attempt + 1}/{max_retries} in {wait}s due to: {err[:80]}...")
+                time.sleep(wait)
+            else:
+                print(f"  Chunk transcription error: {e}")
+                return None
+    return None
 
 
 def transcribe_audio(file_path: str) -> str | None:

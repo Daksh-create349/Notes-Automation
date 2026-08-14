@@ -6,13 +6,31 @@ and saves everything to Notion (with a clipboard fallback).
 
 import argparse
 import os
+import re
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 ENV_PATH = Path(__file__).parent / ".env"
+TRANSCRIPTS_DIR = Path(tempfile.gettempdir()) / "notes_automation_transcripts"
+_LEGACY_TRANSCRIPT = Path(tempfile.gettempdir()) / "notes_automation_last_transcript.txt"
+_MAX_SAVED = 10
+
+
+def _migrate_legacy() -> None:
+    """Move the old single-file transcript into the new directory if it exists."""
+    if not _LEGACY_TRANSCRIPT.exists():
+        return
+    TRANSCRIPTS_DIR.mkdir(exist_ok=True)
+    dest = TRANSCRIPTS_DIR / f"00000000_000000_legacy.txt"
+    try:
+        dest.write_text(_LEGACY_TRANSCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+        _LEGACY_TRANSCRIPT.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def check_env() -> bool:
@@ -35,8 +53,28 @@ def check_env() -> bool:
     return True
 
 
+def _save_transcript(transcript: str) -> Path:
+    TRANSCRIPTS_DIR.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Extract only ASCII words for a clean filename, or default to 'lecture_transcript'
+    ascii_words = [re.sub(r"[^a-zA-Z0-9]", "", w) for w in transcript.split()[:8]]
+    label = "_".join(w for w in ascii_words if w)[:30]
+    filename = f"{timestamp}_{label}.txt" if label else f"{timestamp}_lecture_transcript.txt"
+    path = TRANSCRIPTS_DIR / filename
+    path.write_text(transcript, encoding="utf-8")
+    all_files = sorted(TRANSCRIPTS_DIR.glob("*.txt"))
+    for old in all_files[:-_MAX_SAVED]:
+        old.unlink(missing_ok=True)
+    return path
+
+
+def _list_transcripts() -> list[Path]:
+    if not TRANSCRIPTS_DIR.exists():
+        return []
+    return sorted(TRANSCRIPTS_DIR.glob("*.txt"), reverse=True)
+
+
 def cmd_start() -> None:
-    """Begin recording; block until Ctrl+C, then hand off to cmd_stop."""
     from recorder import start_recording, stop_recording
 
     start_recording()
@@ -53,72 +91,138 @@ def cmd_start() -> None:
 
 
 def cmd_stop(clipboard: bool = False) -> None:
-    """Stop an in-progress recording and process it."""
     from recorder import stop_recording
     _process(stop_recording(), clipboard=clipboard)
 
 
-def _process(audio_path: str | None, clipboard: bool) -> None:
-    """Transcribe → notes → quiz → save. Cleans up audio when done."""
-    summary: dict = {
-        "audio": audio_path,
-        "notes": None,
-        "notion_url": None,
-        "clipboard": False,
-    }
+def cmd_process(audio_path: str, clipboard: bool = False) -> None:
+    """Run the full pipeline on an existing audio file."""
+    p = Path(audio_path)
+    if not p.exists():
+        print(f"File not found: {audio_path}")
+        return
+    _process(str(p), clipboard=clipboard)
 
+
+def cmd_retry(clipboard: bool = False) -> None:
+    _migrate_legacy()
+    files = _list_transcripts()
+    if not files:
+        print("No saved transcripts found. Run 'start' first to record a lecture.")
+        return
+
+    print("Saved transcripts:\n")
+    for i, f in enumerate(files, 1):
+        parts = f.stem.split("_", 2)
+        try:
+            dt = datetime.strptime(f"{parts[0]}_{parts[1]}", "%Y%m%d_%H%M%S")
+            date_str = dt.strftime("%d %b %Y  %H:%M:%S")
+        except Exception:
+            date_str = f.stem
+
+        preview = ""
+        try:
+            first_line = f.read_text(encoding="utf-8").split("\n")[0].strip()
+            # Clean any non-Latin or foreign characters from the terminal list preview
+            cleaned_line = re.sub(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0900-\u097F]+", "", first_line).strip()
+            if cleaned_line:
+                preview = f"  —  {cleaned_line[:60]}..." if len(cleaned_line) > 60 else f"  —  {cleaned_line}"
+        except Exception:
+            pass
+
+        size = f.stat().st_size
+        print(f"  [{i}] {date_str}  ({size} chars){preview}")
+
+    print()
+    try:
+        choice = input(f"Pick a transcript [1-{len(files)}]: ").strip()
+        idx = int(choice) - 1
+        if not (0 <= idx < len(files)):
+            print("Invalid choice.")
+            return
+    except (ValueError, EOFError):
+        print("Invalid input.")
+        return
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        return
+
+    selected = files[idx]
+    transcript = selected.read_text(encoding="utf-8").strip()
+    if not transcript:
+        print("Selected transcript is empty.")
+        return
+
+    print(f"\nUsing: {selected.name}\n")
+    _notes_from_transcript(transcript, stem=selected.stem, clipboard=clipboard)
+
+
+def _process(audio_path: str | None, clipboard: bool) -> None:
     if not audio_path:
         print("No audio recorded.")
         return
 
-    # --- Transcribe ---
     try:
         from transcriber import transcribe_audio
-        print("\nTranscribing...")
+        print("\n🎧 Transcribing audio...")
         transcript = transcribe_audio(audio_path)
-        if not transcript:
+        if not transcript or not transcript.strip():
             print("Error: transcription returned nothing.")
             return
-        print(f"Transcript:\n{transcript}\n")
+        
+        words = transcript.strip().split()
+        if len(words) < 8:
+            print(f"⚠️ Audio was silent or too short ({len(words)} words detected). Skipping note generation.")
+            return
+
+        saved = _save_transcript(transcript)
+        print(f"✅ Audio transcribed ({len(words)} words captured).")
     except Exception as e:
         print(f"Transcription error: {e}")
         return
 
-    # --- Generate notes ---
+    _notes_from_transcript(transcript, stem=Path(audio_path).stem, clipboard=clipboard)
+
+    try:
+        Path(audio_path).unlink(missing_ok=True)
+    except Exception as e:
+        print(f"Warning: could not delete audio file: {e}")
+
+
+def _notes_from_transcript(transcript: str, stem: str = "notes", clipboard: bool = False) -> None:
+    summary: dict = {"notes": None, "notion_url": None, "clipboard": False}
+
     try:
         from note_generator import generate_notes
-        print("Generating notes...")
+        print("🧠 Translating and generating comprehensive English study notes...")
         notes = generate_notes(transcript)
         if not notes:
             print("Error: note generation returned nothing.")
             return
-        print(f"\nNotes:\n{notes}\n")
+        print(f"\n==================== 📚 GENERATED STUDY NOTES ====================\n")
+        print(notes)
+        print(f"\n===================================================================\n")
     except Exception as e:
         print(f"Note generation error: {e}")
         return
 
-    # Save notes to temp file
-    notes_path = Path(tempfile.gettempdir()) / (Path(audio_path).stem + "_notes.md")
+    notes_path = Path(tempfile.gettempdir()) / f"{stem}_notes.md"
     try:
         notes_path.write_text(notes, encoding="utf-8")
         summary["notes"] = str(notes_path)
     except Exception as e:
         print(f"Warning: could not write notes file: {e}")
 
-    # --- Generate quiz ---
     quiz: str | None = None
     try:
         from quiz_generator import generate_quiz
         print("Generating quiz...")
         quiz = generate_quiz(notes)
-        if quiz:
-            print(f"\nQuiz:\n{quiz}\n")
-        else:
+        if not quiz:
             print("Warning: quiz generation returned nothing.")
     except Exception as e:
         print(f"Quiz generation error: {e}")
 
-    # --- Save to Notion (unless --clipboard forced) ---
     notion_url: str | None = None
     if not clipboard:
         try:
@@ -138,7 +242,6 @@ def _process(audio_path: str | None, clipboard: bool) -> None:
             except Exception as e:
                 print(f"Quiz Notion append error: {e}")
 
-    # --- Clipboard fallback ---
     if clipboard or not notion_url:
         try:
             from clipboard_saver import save_to_clipboard
@@ -148,13 +251,6 @@ def _process(audio_path: str | None, clipboard: bool) -> None:
         except Exception as e:
             print(f"Clipboard error: {e}")
 
-    # --- Clean up audio ---
-    try:
-        Path(audio_path).unlink(missing_ok=True)
-    except Exception as e:
-        print(f"Warning: could not delete audio file: {e}")
-
-    # --- Final summary ---
     print("\n--- Summary ---")
     if summary["notes"]:
         print(f"Notes file : {summary['notes']}")
@@ -207,6 +303,27 @@ def main() -> None:
         help="Skip Notion and copy notes + quiz to clipboard instead.",
     )
 
+    retry_parser = subparsers.add_parser(
+        "retry",
+        help="Pick from saved transcripts and re-run notes generation.",
+    )
+    retry_parser.add_argument(
+        "--clipboard",
+        action="store_true",
+        help="Skip Notion and copy notes + quiz to clipboard instead.",
+    )
+
+    process_parser = subparsers.add_parser(
+        "process",
+        help="Run the full pipeline on an existing audio file (transcribe → notes → Notion).",
+    )
+    process_parser.add_argument("file", help="Path to the audio file (.wav, .mp3, etc.)")
+    process_parser.add_argument(
+        "--clipboard",
+        action="store_true",
+        help="Skip Notion and copy notes + quiz to clipboard instead.",
+    )
+
     _welcome()
 
     args = parser.parse_args()
@@ -218,6 +335,10 @@ def main() -> None:
         cmd_start()
     elif args.command == "stop":
         cmd_stop(clipboard=getattr(args, "clipboard", False))
+    elif args.command == "retry":
+        cmd_retry(clipboard=getattr(args, "clipboard", False))
+    elif args.command == "process":
+        cmd_process(args.file, clipboard=getattr(args, "clipboard", False))
 
 
 if __name__ == "__main__":
