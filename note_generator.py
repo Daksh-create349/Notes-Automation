@@ -15,7 +15,11 @@ CRITICAL RULES — READ CAREFULLY:
    - Every warning, tip, or "remember this" they said
    - Every specific code they wrote or described
    - Any dates, deadlines, or instructions mentioned
-3. **PURE ENGLISH ONLY**: Translate any Hindi/Hinglish/regional speech into clean English. Never leave non-English words in the notes.
+3. **PURE ENGLISH ONLY — ABSOLUTE RULE**: Every single word in the notes MUST be in standard English. This means:
+   - If the teacher spoke in Hindi, Hinglish, Urdu, or any regional language — TRANSLATE IT to clean English
+   - NEVER write any Hindi, Urdu, Arabic, or Devanagari characters (e.g. never write: रोगी, ठीक है, واجب, پورا, poora, rogi, matlab, hota, etc.)
+   - If a word sounds regional but has an English equivalent — always use the English word
+   - Non-Latin characters are STRICTLY FORBIDDEN in the output
 4. **DETECT THE PROGRAMMING LANGUAGE**: If teacher mentions code, use the exact language they were teaching (JavaScript, C++, Python, Java, etc.). Do NOT default to Python.
 5. **ZERO INVENTED CONTENT**: If the teacher did not say it, DO NOT write it. No "additional context", no "it is also worth knowing", no generic textbook filler.
 

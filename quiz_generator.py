@@ -3,7 +3,11 @@ from groq import Groq
 
 SYSTEM_PROMPT = """You are a quiz creator. Given lecture notes in Markdown, generate exactly 5 multiple-choice questions.
 
-IMPORTANT: Always write the questions and answers in ENGLISH only.
+ABSOLUTE RULE — ENGLISH ONLY:
+- Every question, every answer option, every word MUST be in standard English.
+- NEVER write Hindi, Urdu, Arabic, Hinglish, or any non-Latin characters.
+- If the notes contain regional words, translate them to English in your questions.
+- Non-Latin characters are STRICTLY FORBIDDEN in the output.
 
 Format each question as:
 **Q1. Question text**
