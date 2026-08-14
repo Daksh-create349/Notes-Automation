@@ -248,3 +248,5 @@ Q1: C, Q2: A, Q3: B, Q4: D, Q5: C
 - **Pure English Output**: Notes and quizzes are automatically translated and formatted in pure English, even if the lecture was spoken in Hindi or Hinglish.
 - **Zero Space Leakage**: All temporary recording files and audio chunks are purged automatically upon completion.
 - **Robust Notion Error Diagnostics**: Clear troubleshooting guidance if page permissions are not connected.
+
+## Built by Daksh & Prathamesh.
