@@ -26,3 +26,6 @@ env/
 # IDEs
 .vscode/
 .idea/
+
+# Agent configs & skills
+.agents/
