@@ -1,0 +1,28 @@
+# Environment variables
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# Audio files
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+
+# Temp markdown output
+*_notes.md
+
+# macOS
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
