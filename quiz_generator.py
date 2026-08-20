@@ -27,7 +27,10 @@ QUESTION QUALITY RULES:
 - Tag each question's difficulty as Easy, Medium, or Hard.
 
 ABSOLUTE RULE — ENGLISH ONLY:
-Every question, option, and explanation must be in standard English. Never write Hindi, Urdu, or non-Latin script.
+- Every question, every answer option, every word MUST be in standard English.
+- NEVER write Hindi, Urdu, Arabic, Hinglish, or any non-Latin characters.
+- If the notes contain regional words, translate them to English in your questions.
+- Non-Latin characters are STRICTLY FORBIDDEN in the output.
 
 Format each question as:
 **Q1. [Difficulty: Easy/Medium/Hard] Question text**
@@ -39,6 +42,15 @@ D) option
 
 At the end, include an ## Answer Key section listing Q1: A, Q2: B, etc.
 Use only Markdown."""
+
+
+def _clean_non_latin(text: str | None) -> str | None:
+    """Strip any non-Latin or regional unicode scripts from the text."""
+    if not text:
+        return text
+    cleaned = re.sub(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0900-\u097F]+", "", text)
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    return cleaned.strip()
 
 
 def generate_quiz(notes: str, model: str | None = None) -> str | None:
@@ -80,7 +92,7 @@ def generate_quiz(notes: str, model: str | None = None) -> str | None:
         )
         content = response.choices[0].message.content or ""
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-        return content
+        return _clean_non_latin(content)
     except Exception as e:
         print(f"Quiz generation error: {sanitize_error(e)}")
         return None

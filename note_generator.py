@@ -37,6 +37,15 @@ _FALLBACK_MODELS = [
 ]
 
 
+def _clean_non_latin(text: str | None) -> str | None:
+    """Sanitize output to remove any accidental non-Latin/Arabic/Urdu/Devanagari characters."""
+    if not text:
+        return text
+    cleaned = re.sub(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0900-\u097F]+", "", text)
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    return cleaned.strip()
+
+
 def get_groq_llm_model(client: Groq | None = None, preferred: str | None = None) -> str:
     """Resolve active Groq LLM model from preferences or fallbacks."""
     if preferred:
@@ -103,11 +112,12 @@ Output ONLY valid JSON:
 
 
 def _clean_and_parse_json(content: str | None) -> dict | None:
-    """Clean reasoning tags, markdown fences, and extract valid JSON dictionary safely."""
+    """Clean reasoning tags, markdown fences, non-latin scripts, and extract valid JSON dictionary safely."""
     if not content or not content.strip():
         return None
     raw = content.strip()
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+    raw = _clean_non_latin(raw) or ""
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
         raw = re.sub(r"\s*```$", "", raw)
@@ -293,7 +303,7 @@ def generate_all_notes(
                     progress_callback(section_id, num_blocks)
                 continue
 
-        # 2. Combine chunk texts for this ~15-min block
+            # 2. Combine chunk texts for this ~15-min block
         merged_text = "\n\n".join(c.transcript for c in current_chunk_group)
         block_label = f"Section {section_id}/{num_blocks} (Chunks {chunk_ids[0]}–{chunk_ids[-1]})"
         
