@@ -1,0 +1,10 @@
+#!/bin/zsh
+
+# Navigate to the Notes-Automation directory
+cd "/Users/prathamesh/Downloads/Notes-Automation" || exit 1
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Run main.py with the passed arguments
+python3 main.py "$@"
